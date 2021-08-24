@@ -6,12 +6,14 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
 
 	"github.com/gorilla/mux"
 	"github.com/jmoiron/sqlx"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 	"github.com/rs/cors"
+	"gopkg.in/go-playground/validator.v9"
 )
 
 var schema = `CREATE SEQUENCE IF NOT EXISTS public.employees_id_seq
@@ -31,8 +33,8 @@ CREATE TABLE IF NOT EXISTS employees
 
 type employee struct {
 	ID   int    `db:"id" json:"id,omitempty"`
-	Name string `db:"name" json:"name,omitempty"`
-	Age  int    `db:"age" json:"age,omitempty"`
+	Name string `db:"name" json:"name,omitempty" validate:"required"`
+	Age  int    `db:"age" json:"age,omitempty" validate:"required"`
 }
 
 var err error
@@ -75,10 +77,21 @@ func CreateEmployee(w http.ResponseWriter, r *http.Request) {
 	db := Connect()
 	var emp employee
 	_ = json.NewDecoder(r.Body).Decode(&emp)
+	v := validator.New()
+	err = v.Struct(emp)
+	s, _ := regexp.MatchString("^[A-Z][a-z]+$[a-z]", emp.Name)
+	if !s {
+		fmt.Fprint(w, "Name not in Correct format")
+		return
+	}
+	if err != nil {
+		fmt.Fprint(w, err)
+		return
+	}
 	tx := db.MustBegin()
 	tx.MustExec("INSERT INTO employees (Name, Age) VALUES ($1, $2)", emp.Name, emp.Age)
 	tx.Commit()
-
+	json.NewEncoder(w).Encode(emp)
 	fmt.Fprint(w, "Creation Successful")
 }
 
@@ -87,6 +100,12 @@ func UpdateEmployee(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
 	var emp employee
 	_ = json.NewDecoder(r.Body).Decode(&emp)
+	v := validator.New()
+	err = v.Struct(emp)
+	if err != nil {
+		fmt.Fprint(w, "Validation Error")
+		return
+	}
 	tx := db.MustBegin()
 	tx.MustExec("UPDATE employees SET Name=$1, Age=$2 WHERE id=$3", emp.Name, emp.Age, params["id"])
 	tx.Commit()
